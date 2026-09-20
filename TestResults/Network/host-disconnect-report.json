@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "scenario": "Abrupt Host exit",
+  "stage": "Offline",
+  "readyEnabled": false,
+  "submitEnabled": false,
+  "detail": "Editor Guest detected packaged Host termination and disabled gameplay UI."
+}

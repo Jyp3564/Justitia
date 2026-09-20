@@ -1,0 +1,7 @@
+{
+    "passed": true,
+    "role": "guest",
+    "detail": "Guest received exact fragmented Korean topic, round limit and readiness snapshot",
+    "revision": 3,
+    "topicLength": 977
+}

@@ -1,0 +1,8 @@
+{
+  "source": "Local Microsoft Heami synthetic Korean speech",
+  "transcript": "안녕하세요 정의의 여신 게임에서 한국어 음성 인식을 테스트하고 있습니다",
+  "unityConsoleOutput": true,
+  "permissionBlocked": true,
+  "realMicrophoneStt": "Not tested by agent",
+  "modelSha256": "AE85E4A935D7A567BD102FE55AFC16BB595BDB618E11B2FC7591BC08120411BB"
+}

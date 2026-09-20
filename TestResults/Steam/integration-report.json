@@ -1,0 +1,12 @@
+{
+  "appId": 480,
+  "steamInitialized": true,
+  "lobbyCreated": true,
+  "memberLimit": 2,
+  "metadataValidated": true,
+  "waitingGuard": true,
+  "lobbyLeavePassed": true,
+  "nativeSocketPairPayloadPassed": true,
+  "remoteTwoAccountTest": "Not run",
+  "inviteAcceptanceTest": "Not run"
+}
