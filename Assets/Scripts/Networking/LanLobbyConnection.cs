@@ -13,7 +13,8 @@ namespace Justitia
 
     public sealed class LanLobbyConnection : MonoBehaviour
     {
-        private const string Protocol = "justitia-lobby-v2";
+        private const string Protocol = "justitia-lobby-v3";
+        private const string KeywordMessage="justitia/keyword";
         private const string StateMessage = "justitia/state";
         private const string ReadyMessage = "justitia/ready";
         private const string SyncMessage = "justitia/sync";
@@ -38,6 +39,8 @@ namespace Justitia
 
         [Serializable] private sealed class ReadyRequest
         { public string sessionId; public long sequence; public bool ready; }
+        [Serializable] private sealed class KeywordRequest
+        {public string sessionId;public long sequence;public string keyword;}
 
         private void Awake()
         {
@@ -84,6 +87,7 @@ namespace Justitia
                 manager.CustomMessagingManager.RegisterNamedMessageHandler(StateMessage,ReceiveState);
                 manager.CustomMessagingManager.RegisterNamedMessageHandler(ReadyMessage,ReceiveReady);
                 manager.CustomMessagingManager.RegisterNamedMessageHandler(SyncMessage,ReceiveSync);
+                manager.CustomMessagingManager.RegisterNamedMessageHandler(KeywordMessage,ReceiveKeyword);
                 Changed?.Invoke();return true;
             }
             catch(Exception){Leave("연결을 시작하지 못했습니다. IP와 포트 사용 여부를 확인한 뒤 다시 시도해 주세요.");return false;}
@@ -144,6 +148,26 @@ namespace Justitia
         }
         public bool SelectMap(string id)
         {return manager && manager.IsHost && LocalRole==PlayerRole.Host && Stage!=ConnectionStage.Offline && Session.SelectMap(PlayerRole.Host,id);}
+        public bool SetKeyword(string keyword)
+        {
+            if(!CanReady || Session.Phase!=LobbyPhase.HostSetup || string.IsNullOrWhiteSpace(keyword) || keyword.Trim().Length>40)return false;
+            if(LocalRole==PlayerRole.Host)return Session.SetKeyword(PlayerRole.Host,keyword);
+            Send(KeywordMessage,NetworkManager.ServerClientId,JsonUtility.ToJson(new KeywordRequest{sessionId=Session.SessionId,sequence=++outgoingSequence,keyword=keyword.Trim()}));return true;
+        }
+        public bool BeginCaseGeneration()=>CanReady && manager.IsHost && Session.BeginCaseGeneration(PlayerRole.Host);
+        public bool CompleteCaseGeneration(string sessionId,string summary,string question,string error="")
+        {return CanReady && manager.IsHost && Session.SessionId==sessionId && Session.CompleteCaseGeneration(PlayerRole.Host,summary,question,error);}
+        private void ReceiveKeyword(ulong sender,FastBufferReader reader)
+        {
+            if(!manager.IsHost || sender!=guestId || !PeerConnected || !TryRead(reader,out var json))return;
+            try
+            {
+                var request=JsonUtility.FromJson<KeywordRequest>(json);
+                if(request==null || request.sessionId!=Session.SessionId || request.sequence<=lastGuestSequence)return;
+                lastGuestSequence=request.sequence;Session.SetKeyword(PlayerRole.Guest,request.keyword);
+            }
+            catch(ArgumentException){}
+        }
 
         public bool Submit(string topic,string rounds,out string error)
         {

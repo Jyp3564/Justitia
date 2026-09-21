@@ -12,7 +12,7 @@ namespace Justitia
         private LanLobbyConnection connection;
         private string role,output;
         private float deadline,finishAt;
-        private bool readySent,submitted,finished;
+        private bool readySent,submitted,finished,keywordSent;
         private static string TestTopic => "약속 시간 변경에 관한 토론: "+new string('가',960);
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -55,17 +55,26 @@ namespace Justitia
             {
                 if(connection.Session.Phase==LobbyPhase.HostSetup && !submitted)
                 {
+                    if(!keywordSent){connection.SetKeyword("아이콘");keywordSent=true;}
+                    if(connection.Session.GuestKeyword!="리모콘")return;
+                    if(!connection.BeginCaseGeneration()){Finish(false,"Could not start AI fixture generation");return;}
+                    if(!connection.CompleteCaseGeneration(connection.Session.SessionId,"AI 동기화 검증용 사건입니다.","그때 무엇을 하고 있었습니까?")){Finish(false,"Could not publish AI fixture");return;}
                     if(!connection.Submit(TestTopic,"5",out var error)){Finish(false,error);return;}
                     submitted=true;
                 }
                 if(submitted && connection.Stage==ConnectionStage.Offline)
                     Finish(true,"Host authoritative ready/configuration flow and Guest disconnect passed");
             }
+            else if(connection.Session.Phase==LobbyPhase.HostSetup && !keywordSent)
+            {
+                connection.SetKeyword("리모콘");keywordSent=true;
+                if(connection.BeginCaseGeneration()){Finish(false,"Guest could generate AI case");return;}
+            }
             else if(connection.Session.Phase==LobbyPhase.Submitted)
             {
                 bool valid=connection.LocalRole==PlayerRole.Guest && connection.Session.HostReady && connection.Session.GuestReady &&
-                    connection.Session.Topic==TestTopic && connection.Session.MaxRound==5 && connection.Session.Revision>=4 && connection.Session.MapId=="court";
-                Finish(valid,"Guest received exact fragmented Korean topic, round limit and readiness snapshot");
+                    connection.Session.Topic==TestTopic && connection.Session.MaxRound==5 && connection.Session.Revision>=8 && connection.Session.MapId=="court" && connection.Session.HostKeyword=="아이콘" && connection.Session.GuestKeyword=="리모콘" && connection.Session.CaseSummary=="AI 동기화 검증용 사건입니다." && connection.Session.CommonQuestion=="그때 무엇을 하고 있었습니까?";
+                Finish(valid,"Guest keyword authority and synchronized AI fixture, map, long topic and readiness passed");
                 connection.Leave();
             }
         }

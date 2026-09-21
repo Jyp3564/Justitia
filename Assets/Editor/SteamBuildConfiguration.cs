@@ -19,6 +19,10 @@ namespace Justitia.Editor
             var path=Path.Combine(folder,"steam_appid.txt");
             if((report.summary.options&BuildOptions.Development)!=0)File.WriteAllText(path,SteamClientRuntime.AppId.ToString());
             else if(File.Exists(path))File.Delete(path);
+            var aiSource=Path.GetFullPath("Tools/JusticeAI");var aiTarget=Path.Combine(folder,"Tools","JusticeAI");Directory.CreateDirectory(aiTarget);
+            foreach(var name in new[]{"bridge.py","local.example.json"})File.Copy(Path.Combine(aiSource,name),Path.Combine(aiTarget,name),true);
+            // Local development configuration contains paths only. Never copy the source AI's .env or API key.
+            if((report.summary.options&BuildOptions.Development)!=0 && File.Exists(Path.Combine(aiSource,"local.json")))File.Copy(Path.Combine(aiSource,"local.json"),Path.Combine(aiTarget,"local.json"),true);
             // Keep native executables outside Assets so Unity does not import backend DLLs as plugins.
             if(report.summary.platform==BuildTarget.StandaloneWindows64)
             {

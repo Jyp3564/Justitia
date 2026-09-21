@@ -13,6 +13,10 @@ namespace Justitia
         public SteamLobbyRoom SteamRoom { get; private set; }
         public SteamVoiceChat Voice { get; private set; }
         public LocalSpeechToText Speech { get; private set; }
+        public JusticeCaseAI GoddessAI { get; private set; }
+        private UnityEngine.UI.Button keywordButton,startCaseButton;
+        private GameObject roundSettings,caseHud;
+        private TMP_Text goddessText;
         private TMP_Text transcriptLabel;
         private GameObject voicePanel;
         private TMP_Text voiceStatus,muteLabel,volumeLabel;
@@ -74,6 +78,7 @@ namespace Justitia
         private void Update()
         {
             if(!Network)return;
+            if(startCaseButton)startCaseButton.interactable=Network.CanReady && LocalRole==PlayerRole.Host && int.TryParse(RoundInput.text,out var roundCount) && roundCount>=1 && roundCount<=5;
             var canvasSize=((RectTransform)transform).rect.size;
             if(mainFrame)mainFrame.localScale=Vector3.one*Mathf.Min(canvasSize.x/1280f,canvasSize.y/720f);
             if(cardRect)cardRect.localScale=Vector3.one*Mathf.Min(1,Mathf.Min((canvasSize.x-24)/820f,(canvasSize.y-24)/680f));
@@ -84,6 +89,7 @@ namespace Justitia
             Voice.InputBlocked=(!inWorld && !inLobby) || (inWorld && menuOpen) || voicePanel.activeSelf || friendList.activeSelf || Session.Phase==LobbyPhase.HostSetup || overlay;
             if(lobbyVoice)lobbyVoice.text=Voice.Status+"\n"+Speech.Status+(string.IsNullOrEmpty(Speech.LastTranscript)?"":" · "+Speech.LastTranscript);
             if(transcriptLabel && Speech)transcriptLabel.text=Speech.Status+"\n"+Speech.LastTranscript;
+            if(caseHud){caseHud.SetActive(inWorld && !menuOpen && Session.CommonQuestion.Length>0);goddessText.text="정의의 여신\n"+Session.CaseSummary+"\n\n"+Session.CommonQuestion;}
             if(inWorld && !overlay && UnityEngine.InputSystem.Keyboard.current?.escapeKey.wasPressedThisFrame==true)
                 SetMenuOpen(!menuOpen);
             else if(!inWorld && !overlay && UnityEngine.InputSystem.Keyboard.current?.escapeKey.wasPressedThisFrame==true)
@@ -127,6 +133,7 @@ namespace Justitia
             SteamRoom = gameObject.AddComponent<SteamLobbyRoom>();
             Voice=gameObject.AddComponent<SteamVoiceChat>();Voice.Initialize(Network);
             Speech=gameObject.AddComponent<LocalSpeechToText>();Speech.Initialize(Voice);
+            GoddessAI=gameObject.AddComponent<JusticeCaseAI>();GoddessAI.Initialize(Network);
             BuildUI();
             Network.Changed += Refresh;
             SteamRoom.Changed += Refresh;
@@ -156,7 +163,8 @@ namespace Justitia
 
         public void SubmitSettings()
         {
-            if (!Network.Submit(TopicInput.text, RoundInput.text, out var error)) errorText.text = error;
+            if(Session.CaseSummary.Length==0)return;
+            if (!Network.Submit(Session.CaseSummary, RoundInput.text, out var error)) errorText.text = error;
         }
 
         private void Refresh()
@@ -198,20 +206,27 @@ namespace Justitia
             if(!SteamRoom.CanInvite)friendList.SetActive(false);
             bool detail=!friendList.activeSelf && !voicePanel.activeSelf;
             preparation.SetActive(preparing && detail);
-            setup.SetActive(configuring && host && detail);
-            waiting.SetActive(configuring && !host && detail);
-            submitted.SetActive(playing && detail);
+            bool generated=Session.CaseSummary.Length>0;
+            setup.SetActive(configuring && !generated && detail);
+            waiting.SetActive(false);
+            submitted.SetActive((playing || (configuring && generated)) && detail);
+            roundSettings.SetActive(configuring && generated && host);
+            startCaseButton.gameObject.SetActive(configuring && generated && host);
             lobbyVoice.gameObject.SetActive(online && !voicePanel.activeSelf);
-            heading.text=!online?(settings?"설정":"방 참가"):preparing?"대기 로비":configuring?"토론 설정":"게임 설정";
+            heading.text=!online?(settings?"설정":"방 참가"):preparing?"대기 로비":configuring?(generated?"여신이 제시한 사건":"여신에게 사건 요청"):"게임 설정";
             status.text=!online?"친구와 함께 정의의 법정으로":$"Host {(Session.HostReady?"준비 완료":"대기")}   ·   Guest {(Network.PeerConnected?(Session.GuestReady?"준비 완료":"대기"):"연결 대기")}   |   내 역할: {LocalRole}";
             mapStatus.text=Session.MapId=="court"?"선택한 맵  ·  정의의 법정":"맵 선택  ·  Host가 선택해 주세요";
             mapButton.gameObject.SetActive(host);mapButton.interactable=preparing && Session.MapId!="court";
             mapButton.GetComponentInChildren<TMP_Text>().text=Session.MapId=="court"?"정의의 법정 · 선택됨":"정의의 법정 선택";
             readyText.text=(host?Session.HostReady:Session.GuestReady)?"준비 취소":"준비 완료";
             ReadyButton.interactable=preparing && Network.CanReady && Session.MapId=="court";
-            TopicInput.interactable=RoundInput.interactable=SubmitButton.interactable=configuring && host && Network.CanReady;
-            errorText.text="";
-            summary.text=$"맵: 정의의 법정\n{Session.Topic}\n\n최대 {Session.MaxRound}라운드 · 첫 발언: Guest";
+            TopicInput.interactable=keywordButton.interactable=configuring && Network.CanReady && !Session.AiGenerating && !generated;
+            RoundInput.interactable=configuring && host && Network.CanReady;
+            SubmitButton.gameObject.SetActive(host);
+            SubmitButton.interactable=configuring && host && Network.CanReady && !Session.AiGenerating && Session.HostKeyword.Length>0 && Session.GuestKeyword.Length>0;
+            counter.text=$"Host: {(Session.HostKeyword.Length>0?Session.HostKeyword:"입력 대기")}\nGuest: {(Session.GuestKeyword.Length>0?Session.GuestKeyword:"입력 대기")}";
+            errorText.text=Session.AiGenerating?"여신이 사건을 만들고 있습니다…":Session.AiError;
+            summary.text=generated?$"[사건 개요]\n{Session.CaseSummary}\n\n[공통 질문]\n{Session.CommonQuestion}":$"맵: 정의의 법정\n{Session.Topic}\n\n최대 {Session.MaxRound}라운드";
             if(!online && frontPage==FrontPage.Join)RefreshRooms();
             ApplyRole();
         }
@@ -229,6 +244,10 @@ namespace Justitia
             var transcript=Node("SttTranscript",worldHint.transform);
             var transcriptRect=transcript.GetComponent<RectTransform>();transcriptRect.anchorMin=transcriptRect.anchorMax=new Vector2(0.5f,1);transcriptRect.pivot=new Vector2(0.5f,1);transcriptRect.anchoredPosition=new Vector2(0,-60);transcriptRect.sizeDelta=new Vector2(880,100);
             transcriptLabel=Text(transcript.transform,"",19,100,Color.white);Stretch(transcriptLabel.rectTransform);transcriptLabel.alignment=TextAlignmentOptions.Top;
+            caseHud=Node("GoddessCase",transform);var caseRect=caseHud.GetComponent<RectTransform>();caseRect.anchorMin=new Vector2(0.12f,0);caseRect.anchorMax=new Vector2(0.88f,0);caseRect.pivot=new Vector2(0.5f,0);caseRect.anchoredPosition=new Vector2(0,18);caseRect.sizeDelta=new Vector2(0,210);
+            caseHud.AddComponent<UnityEngine.UI.Image>().color=new Color(0.025f,0.04f,0.065f,0.94f);
+            goddessText=Text(caseHud.transform,"",18,210,new Color(0.94f,0.87f,0.7f));Stretch(goddessText.rectTransform);goddessText.rectTransform.offsetMin=new Vector2(18,12);goddessText.rectTransform.offsetMax=new Vector2(-18,-12);goddessText.enableAutoSizing=true;goddessText.fontSizeMin=12;goddessText.fontSizeMax=18;
+            caseHud.SetActive(false);
             backdrop = Node("Backdrop", transform);
             Stretch(backdrop.GetComponent<RectTransform>());
             backdrop.AddComponent<UnityEngine.UI.Image>().color = new Color(0.025f,0.035f,0.065f,0.82f);
@@ -297,36 +316,36 @@ namespace Justitia
             preparation = Group("Preparation",panel.transform,245,false);
             mapStatus=Text(preparation.transform,"",23,44,Color.white);
             mapButton=Button(preparation.transform,"법정 맵 선택",()=>Network.SelectMap("court"));
-            Text(preparation.transform,"Host가 맵을 선택한 뒤 양쪽 모두 준비해 주세요.\n준비가 끝나면 주제·라운드를 정하고 맵에 입장합니다.",17,72,new Color(0.7f,0.79f,0.88f));
+            Text(preparation.transform,"Host가 맵을 선택한 뒤 양쪽 모두 준비해 주세요.\n준비가 끝나면 각자 키워드를 제출해 여신의 사건을 받습니다.",17,72,new Color(0.7f,0.79f,0.88f));
             ReadyButton = Button(preparation.transform,"준비 완료",ToggleReady);
             readyText = ReadyButton.GetComponentInChildren<TMP_Text>();
 
             setup = Group("HostSetup",panel.transform,310,false);
-            Text(setup.transform,"토론 주제",20,28,Color.white);
-            TopicInput = Input(setup.transform,"예: 약속 시간 변경으로 생긴 다툼",90,true,1000);
-            counter = Text(setup.transform,"0 / 1,000자",14,22,new Color(0.7f,0.79f,0.88f));
-            TopicInput.onValueChanged.AddListener(value=>{counter.text=$"{value.Length:N0} / 1,000자";errorText.text="";});
-            var roundRow = Group("RoundSetting",setup.transform,48,true);
-            Text(roundRow.transform,"최대 라운드 (1~5)",18,46,Color.white);
-            RoundInput = Input(roundRow.transform,"3",46,false,2); RoundInput.text="3";
-            RoundInput.contentType=TMP_InputField.ContentType.IntegerNumber;
-            errorText = Text(setup.transform,"",16,32,new Color(1,0.55f,0.45f));
-            SubmitButton = Button(setup.transform,"설정 제출",SubmitSettings);
+            Text(setup.transform,"내 사건 키워드 (1~40자)",20,28,Color.white);
+            TopicInput = Input(setup.transform,"예: 아이콘 / 리모콘",48,false,40);
+            keywordButton=Button(setup.transform,"내 키워드 제출",()=>{if(!Network.SetKeyword(TopicInput.text))errorText.text="키워드는 1~40자로 입력해 주세요.";});
+            counter = Text(setup.transform,"",16,48,new Color(0.7f,0.79f,0.88f));
+            errorText = Text(setup.transform,"",16,40,new Color(1,0.75f,0.5f));
+            SubmitButton = Button(setup.transform,"여신에게 사건 생성 요청",()=>GoddessAI.Generate());
 
             waiting = Group("GuestWaiting",panel.transform,290,false);
             Text(waiting.transform,"양쪽 모두 준비 완료",26,60,Color.white);
             Text(waiting.transform,"Host가 주제와 최대 라운드를 작성하고 있습니다.\n설정을 제출할 때까지 기다려 주세요.",22,130,new Color(0.7f,0.79f,0.88f));
             submitted = Group("Submitted",panel.transform,310,false);
-            Text(submitted.transform,"주제와 라운드가 확정되었습니다.",24,48,new Color(0.4f,0.88f,0.73f));
-            var scrollNode = Node("SummaryScroll",submitted.transform); Height(scrollNode,200);
+            Text(submitted.transform,"정의의 여신 · 사건과 공통 질문 (스크롤)",19,30,new Color(0.4f,0.88f,0.73f));
+            var scrollNode = Node("SummaryScroll",submitted.transform); Height(scrollNode,150);
             var scroll = scrollNode.AddComponent<UnityEngine.UI.ScrollRect>(); scroll.horizontal=false;
             var viewport = Node("Viewport",scrollNode.transform); Stretch(viewport.GetComponent<RectTransform>()); viewport.AddComponent<UnityEngine.UI.RectMask2D>();
             viewport.AddComponent<UnityEngine.UI.Image>().color=new Color(0,0,0,0.05f);
-            summary=Text(viewport.transform,"",21,200,Color.white);
+            summary=Text(viewport.transform,"",18,200,Color.white);
             var summarySize=summary.GetComponent<UnityEngine.UI.LayoutElement>();summarySize.preferredHeight=-1;summarySize.minHeight=-1;
             var content=summary.rectTransform; content.anchorMin=new Vector2(0,1); content.anchorMax=Vector2.one;content.pivot=new Vector2(0.5f,1); content.sizeDelta=new Vector2(0,200);
             summary.gameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>().verticalFit=UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
             scroll.viewport=viewport.GetComponent<RectTransform>();scroll.content=content;scroll.movementType=UnityEngine.UI.ScrollRect.MovementType.Clamped;scroll.scrollSensitivity=30;
+            roundSettings=Group("RoundSetting",submitted.transform,48,true);
+            Text(roundSettings.transform,"최대 라운드 (1~5)",18,46,Color.white);
+            RoundInput = Input(roundSettings.transform,"3",46,false,2);RoundInput.text="3";RoundInput.contentType=TMP_InputField.ContentType.IntegerNumber;
+            startCaseButton=Button(submitted.transform,"이 사건으로 게임 시작",SubmitSettings);
             lobbyVoice=Text(panel.transform,"",14,48,new Color(0.6f,0.8f,0.78f));lobbyVoice.overflowMode=TextOverflowModes.Ellipsis;
             frontBack=Button(panel.transform,"메인 메뉴",ShowMainMenu).gameObject;
             BuildFrontMenu();

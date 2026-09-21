@@ -45,7 +45,7 @@ namespace Justitia
         {
             if(!roomCandidates.TryGetValue(id,out var name))return;
             var room=new CSteamID(id);
-            if(SteamMatchmaking.GetLobbyData(room,"game")!=GameKey || SteamMatchmaking.GetLobbyData(room,"protocol")!="2")return;
+            if(SteamMatchmaking.GetLobbyData(room,"game")!=GameKey || SteamMatchmaking.GetLobbyData(room,"protocol")!="3")return;
             if(SteamMatchmaking.GetNumLobbyMembers(room)>=2)return;
             FriendRooms.RemoveAll(item=>item.Id==id);FriendRooms.Add(new FriendRoom{Id=id,Name=name});Changed?.Invoke();
         }
@@ -81,7 +81,7 @@ namespace Justitia
                 if(failed || data.m_eResult!=EResult.k_EResultOK){Fail("Steam 방을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.");return;}
                 lobby=new CSteamID(data.m_ulSteamIDLobby);host=SteamUser.GetSteamID();
                 bool valid=SteamMatchmaking.SetLobbyData(lobby,"game",GameKey) &&
-                    SteamMatchmaking.SetLobbyData(lobby,"protocol","2") &&
+                    SteamMatchmaking.SetLobbyData(lobby,"protocol","3") &&
                     SteamMatchmaking.SetLobbyData(lobby,"host",host.m_SteamID.ToString());
                 SteamMatchmaking.SetLobbyJoinable(lobby,true);
                 if(!valid || !Network.StartSteam(true,transport)){Fail("Steam 방의 게임 연결을 시작하지 못했습니다.");return;}
@@ -102,7 +102,7 @@ namespace Justitia
                 Busy=false;
                 if(!success){Fail("Steam 방에 참가하지 못했습니다. 초대와 방 인원을 확인해 주세요.");return;}
                 lobby=new CSteamID(data.m_ulSteamIDLobby);host=SteamMatchmaking.GetLobbyOwner(lobby);
-                if(SteamMatchmaking.GetLobbyData(lobby,"game")!=GameKey || SteamMatchmaking.GetLobbyData(lobby,"protocol")!="2" ||
+                if(SteamMatchmaking.GetLobbyData(lobby,"game")!=GameKey || SteamMatchmaking.GetLobbyData(lobby,"protocol")!="3" ||
                     SteamMatchmaking.GetLobbyData(lobby,"host")!=host.m_SteamID.ToString() || host==SteamUser.GetSteamID())
                 {Fail("호환되는 다른 Host의 방이 아닙니다.");return;}
                 transport.TargetSteamId=host.m_SteamID;
