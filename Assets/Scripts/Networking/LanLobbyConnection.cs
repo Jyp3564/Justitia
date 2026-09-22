@@ -24,8 +24,9 @@ namespace Justitia
         public ConnectionStage Stage { get; private set; }
         public string Message { get; private set; } = "방을 만들거나 Host의 IP로 참가해 주세요.";
         public bool PeerConnected { get; private set; }
-        public bool CanReady => Stage == ConnectionStage.Connected && PeerConnected && receivedSnapshot;
+        public bool CanReady => (IsDevMode && Stage == ConnectionStage.Connected) || (Stage == ConnectionStage.Connected && PeerConnected && receivedSnapshot);
         public bool IsSteam { get; private set; }
+        public bool IsDevMode { get; private set; }
         public bool Available => Stage==ConnectionStage.Offline && manager && !manager.IsListening && !manager.ShutdownInProgress;
         public event Action Changed;
         private NetworkManager manager;
@@ -63,6 +64,23 @@ namespace Justitia
         public bool Host(ushort port=7777) => Begin(true,"127.0.0.1",port);
         public bool Join(string address, ushort port=7777) => Begin(false,address,port);
         public bool StartSteam(bool host,SteamSocketsTransport steamTransport)=>Begin(host,"127.0.0.1",7777,steamTransport);
+
+        public bool HostDev(ushort port=7777)
+        {
+            if (Stage != ConnectionStage.Offline) Leave();
+            if (!Begin(true, "127.0.0.1", port))
+            {
+                if (!Begin(true, "127.0.0.1", (ushort)(port + 1))) return false;
+            }
+            IsDevMode = true;
+            PeerConnected = true;
+            Stage = ConnectionStage.Connected;
+            Message = "개발 전용 방 · 1인 테스트 모드";
+            Session.SelectMap(PlayerRole.Host, "court");
+            Session.IsDevMode = true;
+            Changed?.Invoke();
+            return true;
+        }
 
         private bool Begin(bool host,string address,ushort port,NetworkTransport alternate=null)
         {
@@ -134,24 +152,37 @@ namespace Justitia
 
         private void Update()
         {
-            if((Stage==ConnectionStage.Connecting || (Stage==ConnectionStage.Connected && !receivedSnapshot)) && Time.realtimeSinceStartup>connectDeadline)
+            if(!IsDevMode && (Stage==ConnectionStage.Connecting || (Stage==ConnectionStage.Connected && !receivedSnapshot)) && Time.realtimeSinceStartup>connectDeadline)
                 Leave(IsSteam?"Steam 연결 시간이 초과되었습니다. 친구가 방을 열었는지 확인하고 다시 참가해 주세요.":"연결 시간이 초과되었습니다. Host의 IP와 방화벽을 확인한 뒤 다시 참가해 주세요.");
         }
 
         public void SetReady(bool ready)
         {
             if(!CanReady || Session.Phase!=LobbyPhase.Preparing)return;
-            if(LocalRole==PlayerRole.Host) Session.SetReady(PlayerRole.Host,ready);
+            if(LocalRole==PlayerRole.Host)
+            {
+                if (IsDevMode) Session.SetDevReady(ready);
+                else Session.SetReady(PlayerRole.Host,ready);
+            }
             else Send(ReadyMessage,NetworkManager.ServerClientId,JsonUtility.ToJson(new ReadyRequest {
                 sessionId=Session.SessionId, sequence=++outgoingSequence, ready=ready
             }));
         }
         public bool SelectMap(string id)
         {return manager && manager.IsHost && LocalRole==PlayerRole.Host && Stage!=ConnectionStage.Offline && Session.SelectMap(PlayerRole.Host,id);}
+        public bool SetDevKeywords(string hostKw, string guestKw)
+        {
+            if (!IsDevMode || !CanReady) return false;
+            return Session.SetDevKeywords(hostKw, guestKw);
+        }
+
         public bool SetKeyword(string keyword)
         {
             if(!CanReady || Session.Phase!=LobbyPhase.HostSetup || string.IsNullOrWhiteSpace(keyword) || keyword.Trim().Length>40)return false;
-            if(LocalRole==PlayerRole.Host)return Session.SetKeyword(PlayerRole.Host,keyword);
+            if(LocalRole==PlayerRole.Host)
+            {
+                return Session.SetKeyword(PlayerRole.Host,keyword);
+            }
             Send(KeywordMessage,NetworkManager.ServerClientId,JsonUtility.ToJson(new KeywordRequest{sessionId=Session.SessionId,sequence=++outgoingSequence,keyword=keyword.Trim()}));return true;
         }
         public bool BeginCaseGeneration()=>CanReady && manager.IsHost && Session.BeginCaseGeneration(PlayerRole.Host);
@@ -172,7 +203,7 @@ namespace Justitia
         public bool Submit(string topic,string rounds,out string error)
         {
             error="Host와 Guest가 연결된 상태에서 Host만 제출할 수 있습니다.";
-            return CanReady && LocalRole==PlayerRole.Host && manager.IsHost && Session.Submit(PlayerRole.Host,topic,rounds,out error);
+            return (IsDevMode || CanReady) && LocalRole==PlayerRole.Host && (manager.IsHost || IsDevMode) && Session.Submit(PlayerRole.Host,topic,rounds,out error);
         }
 
         private void ReceiveReady(ulong sender,FastBufferReader reader)
@@ -234,6 +265,8 @@ namespace Justitia
         public void Leave(string reason="접속을 종료했습니다.")
         {
             stopping=true;PeerConnected=false;receivedSnapshot=false;guestId=null;
+            IsDevMode=false;
+            if (Session != null) Session.IsDevMode = false;
             Stage=ConnectionStage.Offline;Message=reason;
             if(manager && manager.IsListening)manager.Shutdown();
             Changed?.Invoke();

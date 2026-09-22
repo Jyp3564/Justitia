@@ -44,7 +44,12 @@ namespace Justitia
         private bool wasOnline;
         private GameObject mainMenu,frontBack;
         private TMP_Text mainStatus,mapStatus,lobbyVoice;
-        private UnityEngine.UI.Button createRoomButton,resumeButton,mapButton;
+        private UnityEngine.UI.Button createRoomButton,resumeButton,mapButton,devStartButton,devDefaultCaseButton;
+        private TMP_InputField devHostInput, devGuestInput;
+        private TMP_InputField devSetupHostInput, devSetupGuestInput;
+        private GameObject normalPrepGroup, devPrepGroup;
+        private GameObject normalSetupGroup, devSetupGroup;
+        private TMP_Text devPrepStatus;
         private Transform roomListContent;
         private RectTransform mainFrame,cardRect;
 
@@ -52,6 +57,61 @@ namespace Justitia
         public void ShowJoinMenu(){frontPage=FrontPage.Join;Refresh();SteamRoom.RefreshFriendRooms();}
         public void ShowSettings(){frontPage=FrontPage.Settings;friendList.SetActive(false);voicePanel.SetActive(true);Refresh();}
         public void CreateRoom(){if(steamMode)SteamRoom.Create();else Network.Host();}
+        public void EnterDevRoom()
+        {
+            if(Network.Stage!=ConnectionStage.Offline)
+            {
+                if(Network.IsSteam || SteamRoom.Busy)SteamRoom.Leave();
+                else Network.Leave();
+            }
+            steamMode=false;
+            bool ok=Network.HostDev();
+            if(!ok)
+            {
+                if(mainStatus)mainStatus.text="개발 방 생성 실패: "+Network.Message;
+                return;
+            }
+            frontPage=FrontPage.Main;
+            Refresh();
+        }
+        public void RequestAiCaseDev()
+        {
+            if(!Network.IsDevMode)return;
+            string hostKw = devHostInput ? devHostInput.text.Trim() : "";
+            string guestKw = devGuestInput ? devGuestInput.text.Trim() : "";
+            if(string.IsNullOrEmpty(hostKw) && devSetupHostInput) hostKw = devSetupHostInput.text.Trim();
+            if(string.IsNullOrEmpty(guestKw) && devSetupGuestInput) guestKw = devSetupGuestInput.text.Trim();
+            if(string.IsNullOrEmpty(hostKw)) hostKw = "아이콘";
+            if(string.IsNullOrEmpty(guestKw)) guestKw = "리모콘";
+            if(devHostInput) devHostInput.text = hostKw;
+            if(devGuestInput) devGuestInput.text = guestKw;
+            if(devSetupHostInput) devSetupHostInput.text = hostKw;
+            if(devSetupGuestInput) devSetupGuestInput.text = guestKw;
+
+            Network.SetDevKeywords(hostKw, guestKw);
+            GoddessAI.Generate();
+            Refresh();
+        }
+        private void StartDevGameDirectly()
+        {
+            if(!Network.IsDevMode)return;
+            string h = devHostInput && !string.IsNullOrEmpty(devHostInput.text) ? devHostInput.text.Trim() : "정의";
+            string g = devGuestInput && !string.IsNullOrEmpty(devGuestInput.text) ? devGuestInput.text.Trim() : "진실";
+            Network.SetDevKeywords(h, g);
+            Network.Session.StartDevGameDirectly();
+            Refresh();
+        }
+        private void ApplyDevDefaultCase()
+        {
+            if(!Network.IsDevMode)return;
+            string h = devHostInput && !string.IsNullOrEmpty(devHostInput.text) ? devHostInput.text.Trim() : "정의";
+            string g = devGuestInput && !string.IsNullOrEmpty(devGuestInput.text) ? devGuestInput.text.Trim() : "진실";
+            Network.SetDevKeywords(h, g);
+            Network.Session.ApplyDevCase(
+                "정의의 법정 개발 검증용 사건입니다. 피고는 황금 저울을 임의로 이동한 혐의를 받고 있습니다.",
+                "당시 피고가 저울 근처에 있었던 이유는 무엇입니까?");
+            Refresh();
+        }
         private void QuitGame()
         {
             SteamRoom.Leave();PlayerPrefs.Save();
@@ -213,18 +273,36 @@ namespace Justitia
             roundSettings.SetActive(configuring && generated && host);
             startCaseButton.gameObject.SetActive(configuring && generated && host);
             lobbyVoice.gameObject.SetActive(online && !voicePanel.activeSelf);
-            heading.text=!online?(settings?"설정":"방 참가"):preparing?"대기 로비":configuring?(generated?"여신이 제시한 사건":"여신에게 사건 요청"):"게임 설정";
-            status.text=!online?"친구와 함께 정의의 법정으로":$"Host {(Session.HostReady?"준비 완료":"대기")}   ·   Guest {(Network.PeerConnected?(Session.GuestReady?"준비 완료":"대기"):"연결 대기")}   |   내 역할: {LocalRole}";
-            mapStatus.text=Session.MapId=="court"?"선택한 맵  ·  정의의 법정":"맵 선택  ·  Host가 선택해 주세요";
-            mapButton.gameObject.SetActive(host);mapButton.interactable=preparing && Session.MapId!="court";
+            heading.text=!online?(settings?"설정":"방 참가"):preparing?(Network.IsDevMode?"[개발 전용] 대기 로비":"대기 로비"):configuring?(generated?"여신이 제시한 사건":"여신에게 사건 요청"):"게임 설정";
+            status.text=!online?"친구와 함께 정의의 법정으로":Network.IsDevMode?$"[개발 전용 방] 1인 2역 테스트 모드   |   내 역할: {LocalRole}":$"Host {(Session.HostReady?"준비 완료":"대기")}   ·   Guest {(Network.PeerConnected?(Session.GuestReady?"준비 완료":"대기"):"연결 대기")}   |   내 역할: {LocalRole}";
+            mapStatus.text=Session.MapId=="court"?(Network.IsDevMode?"선택한 맵  ·  정의의 법정 (개발 전용)":"선택한 맵  ·  정의의 법정"):"맵 선택  ·  Host가 선택해 주세요";
+            mapButton.gameObject.SetActive(host && !Network.IsDevMode);mapButton.interactable=preparing && Session.MapId!="court";
             mapButton.GetComponentInChildren<TMP_Text>().text=Session.MapId=="court"?"정의의 법정 · 선택됨":"정의의 법정 선택";
             readyText.text=(host?Session.HostReady:Session.GuestReady)?"준비 취소":"준비 완료";
             ReadyButton.interactable=preparing && Network.CanReady && Session.MapId=="court";
+            if(normalPrepGroup)normalPrepGroup.SetActive(!Network.IsDevMode);
+            if(devPrepGroup)devPrepGroup.SetActive(Network.IsDevMode);
+            if(normalSetupGroup)normalSetupGroup.SetActive(!Network.IsDevMode);
+            if(devSetupGroup)devSetupGroup.SetActive(Network.IsDevMode);
+            if(devPrepStatus)
+            {
+                if(Session.AiGenerating)devPrepStatus.text="여신이 사건을 만들고 있습니다…";
+                else if(!string.IsNullOrEmpty(Session.AiError))devPrepStatus.text=Session.AiError;
+                else devPrepStatus.text="Host(원고)와 Guest(피고)의 키워드를 각각 입력한 뒤 AI에게 요청하세요.";
+            }
+            if(Network.IsDevMode)
+            {
+                if(devHostInput && devSetupHostInput && !string.IsNullOrEmpty(devHostInput.text) && string.IsNullOrEmpty(devSetupHostInput.text))
+                    devSetupHostInput.text=devHostInput.text;
+                if(devGuestInput && devSetupGuestInput && !string.IsNullOrEmpty(devGuestInput.text) && string.IsNullOrEmpty(devSetupGuestInput.text))
+                    devSetupGuestInput.text=devGuestInput.text;
+            }
+            if(devDefaultCaseButton)devDefaultCaseButton.gameObject.SetActive(Network.IsDevMode && configuring && !generated);
             TopicInput.interactable=keywordButton.interactable=configuring && Network.CanReady && !Session.AiGenerating && !generated;
             RoundInput.interactable=configuring && host && Network.CanReady;
             SubmitButton.gameObject.SetActive(host);
-            SubmitButton.interactable=configuring && host && Network.CanReady && !Session.AiGenerating && Session.HostKeyword.Length>0 && Session.GuestKeyword.Length>0;
-            counter.text=$"Host: {(Session.HostKeyword.Length>0?Session.HostKeyword:"입력 대기")}\nGuest: {(Session.GuestKeyword.Length>0?Session.GuestKeyword:"입력 대기")}";
+            SubmitButton.interactable=configuring && host && Network.CanReady && !Session.AiGenerating && ((!Network.IsDevMode && Session.HostKeyword.Length>0 && Session.GuestKeyword.Length>0) || Network.IsDevMode);
+            counter.text=Network.IsDevMode?$"Host (원고): {(Session.HostKeyword.Length>0?Session.HostKeyword:"입력 대기")}\nGuest (피고): {(Session.GuestKeyword.Length>0?Session.GuestKeyword:"입력 대기")}":$"Host: {(Session.HostKeyword.Length>0?Session.HostKeyword:"입력 대기")}\nGuest: {(Session.GuestKeyword.Length>0?Session.GuestKeyword:"입력 대기")}";
             errorText.text=Session.AiGenerating?"여신이 사건을 만들고 있습니다…":Session.AiError;
             summary.text=generated?$"[사건 개요]\n{Session.CaseSummary}\n\n[공통 질문]\n{Session.CommonQuestion}":$"맵: 정의의 법정\n{Session.Topic}\n\n최대 {Session.MaxRound}라운드";
             if(!online && frontPage==FrontPage.Join)RefreshRooms();
@@ -313,20 +391,63 @@ namespace Justitia
             Text(voicePanel.transform,"맵에서 V를 누르고 말하기 → 놓으면 한국어 STT 출력\nSteam 입력 장치 사용 · 혼자 Host로도 STT 테스트 가능",16,56,new Color(0.7f,0.79f,0.88f));
             Button(voicePanel.transform,"설정 닫기",()=>{voicePanel.SetActive(false);if(!wasOnline)frontPage=FrontPage.Main;Refresh();});
             voicePanel.SetActive(false);
-            preparation = Group("Preparation",panel.transform,245,false);
-            mapStatus=Text(preparation.transform,"",23,44,Color.white);
-            mapButton=Button(preparation.transform,"법정 맵 선택",()=>Network.SelectMap("court"));
-            Text(preparation.transform,"Host가 맵을 선택한 뒤 양쪽 모두 준비해 주세요.\n준비가 끝나면 각자 키워드를 제출해 여신의 사건을 받습니다.",17,72,new Color(0.7f,0.79f,0.88f));
-            ReadyButton = Button(preparation.transform,"준비 완료",ToggleReady);
+            preparation = Group("Preparation",panel.transform,260,false);
+            normalPrepGroup = Node("NormalPrep",preparation.transform);
+            Height(normalPrepGroup, 245);
+            var npLayout = normalPrepGroup.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            npLayout.spacing=8;npLayout.childControlHeight=npLayout.childControlWidth=true;npLayout.childForceExpandHeight=false;
+            mapStatus=Text(normalPrepGroup.transform,"",23,44,Color.white);
+            mapButton=Button(normalPrepGroup.transform,"법정 맵 선택",()=>Network.SelectMap("court"));
+            Text(normalPrepGroup.transform,"Host가 맵을 선택한 뒤 양쪽 모두 준비해 주세요.\n준비가 끝나면 각자 키워드를 제출해 여신의 사건을 받습니다.",17,72,new Color(0.7f,0.79f,0.88f));
+            var prepActions=Group("PrepActions",normalPrepGroup.transform,48,true);
+            ReadyButton = Button(prepActions.transform,"준비 완료",ToggleReady);
             readyText = ReadyButton.GetComponentInChildren<TMP_Text>();
 
-            setup = Group("HostSetup",panel.transform,310,false);
-            Text(setup.transform,"내 사건 키워드 (1~40자)",20,28,Color.white);
-            TopicInput = Input(setup.transform,"예: 아이콘 / 리모콘",48,false,40);
-            keywordButton=Button(setup.transform,"내 키워드 제출",()=>{if(!Network.SetKeyword(TopicInput.text))errorText.text="키워드는 1~40자로 입력해 주세요.";});
-            counter = Text(setup.transform,"",16,48,new Color(0.7f,0.79f,0.88f));
-            errorText = Text(setup.transform,"",16,40,new Color(1,0.75f,0.5f));
-            SubmitButton = Button(setup.transform,"여신에게 사건 생성 요청",()=>GoddessAI.Generate());
+            devPrepGroup = Node("DevPrep",preparation.transform);
+            Height(devPrepGroup, 255);
+            var dpLayout = devPrepGroup.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            dpLayout.spacing=6;dpLayout.childControlHeight=dpLayout.childControlWidth=true;dpLayout.childForceExpandHeight=false;
+            Text(devPrepGroup.transform,"1인 2역 키워드 입력  ·  원고(Host)와 피고(Guest)",18,24,new Color(0.95f,0.86f,0.68f));
+            var devInputsRow = Group("DevInputsRow",devPrepGroup.transform,48,true);
+            devHostInput = Input(devInputsRow.transform,"Host 키워드 (예: 층간소음)",48,false,40);
+            devGuestInput = Input(devInputsRow.transform,"Guest 키워드 (예: 야간피아노)",48,false,40);
+            var devActionRow = Group("DevActionsRow",devPrepGroup.transform,48,true);
+            var devAiBtn = Button(devActionRow.transform,"여신에게 사건 생성 요청 (AI)",RequestAiCaseDev);
+            devAiBtn.GetComponent<UnityEngine.UI.Image>().color = new Color(0.79f,0.61f,0.3f);
+            devAiBtn.GetComponentInChildren<TMP_Text>().color = new Color(0.035f,0.045f,0.07f);
+            devStartButton = Button(devActionRow.transform,"기본 사건으로 즉시 시작",StartDevGameDirectly);
+            devStartButton.GetComponent<UnityEngine.UI.Image>().color = new Color(0.12f,0.18f,0.25f);
+            devStartButton.GetComponentInChildren<TMP_Text>().color = new Color(0.85f,0.92f,1f);
+            var startOutline = devStartButton.gameObject.AddComponent<UnityEngine.UI.Outline>();
+            startOutline.effectColor = new Color(0.4f,0.6f,0.8f,0.6f); startOutline.effectDistance = new Vector2(1,-1);
+            devPrepStatus = Text(devPrepGroup.transform,"Host(원고)와 Guest(피고)의 키워드를 각각 입력한 뒤 AI에게 요청하세요.",14,28,new Color(0.7f,0.79f,0.88f));
+
+            setup = Group("HostSetup",panel.transform,320,false);
+            normalSetupGroup = Node("NormalSetup",setup.transform);
+            Height(normalSetupGroup, 86);
+            var nsLayout = normalSetupGroup.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            nsLayout.spacing=6;nsLayout.childControlHeight=nsLayout.childControlWidth=true;nsLayout.childForceExpandHeight=false;
+            Text(normalSetupGroup.transform,"내 사건 키워드 (1~40자)",20,28,Color.white);
+            var normRow = Group("NormRow",normalSetupGroup.transform,48,true);
+            TopicInput = Input(normRow.transform,"예: 아이콘 / 리모콘",48,false,40);
+            keywordButton=Button(normRow.transform,"내 키워드 제출",()=>{if(!Network.SetKeyword(TopicInput.text))errorText.text="키워드는 1~40자로 입력해 주세요.";});
+
+            devSetupGroup = Node("DevSetup",setup.transform);
+            Height(devSetupGroup, 86);
+            var dsLayout = devSetupGroup.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            dsLayout.spacing=6;dsLayout.childControlHeight=dsLayout.childControlWidth=true;dsLayout.childForceExpandHeight=false;
+            Text(devSetupGroup.transform,"1인 2역 사건 키워드 (원고 & 피고)",18,28,new Color(0.95f,0.86f,0.68f));
+            var devSetupRow = Group("DevSetupInputs",devSetupGroup.transform,48,true);
+            devSetupHostInput = Input(devSetupRow.transform,"Host (원고) 키워드",48,false,40);
+            devSetupGuestInput = Input(devSetupRow.transform,"Guest (피고) 키워드",48,false,40);
+
+            counter = Text(setup.transform,"",16,40,new Color(0.7f,0.79f,0.88f));
+            errorText = Text(setup.transform,"",16,36,new Color(1,0.75f,0.5f));
+            var submitRow=Group("SubmitActions",setup.transform,48,true);
+            SubmitButton = Button(submitRow.transform,"여신에게 사건 생성 요청",()=>{if(Network.IsDevMode)RequestAiCaseDev();else GoddessAI.Generate();});
+            devDefaultCaseButton = Button(submitRow.transform,"기본 사건 적용 (AI 건너뛰기)",ApplyDevDefaultCase);
+            devDefaultCaseButton.GetComponent<UnityEngine.UI.Image>().color=new Color(0.12f,0.16f,0.22f);
+            devDefaultCaseButton.GetComponentInChildren<TMP_Text>().color=new Color(0.78f,0.88f,1f);
 
             waiting = Group("GuestWaiting",panel.transform,290,false);
             Text(waiting.transform,"양쪽 모두 준비 완료",26,60,Color.white);
@@ -365,11 +486,24 @@ namespace Justitia
             foreach(var button in buttons.GetComponentsInChildren<UnityEngine.UI.Button>())
             {button.GetComponent<UnityEngine.UI.Image>().color=new Color(0.09f,0.13f,0.18f);button.GetComponentInChildren<TMP_Text>().color=new Color(0.92f,0.86f,0.74f);var outline=button.gameObject.AddComponent<UnityEngine.UI.Outline>();outline.effectColor=new Color(0.6f,0.49f,0.3f,0.5f);outline.effectDistance=new Vector2(1,-1);}
             mainStatus=Text(frame.transform,"",16,54,new Color(0.65f,0.76f,0.82f));var sr=mainStatus.rectTransform;sr.anchorMin=sr.anchorMax=sr.pivot=Vector2.one;sr.anchoredPosition=new Vector2(-50,-35);sr.sizeDelta=new Vector2(580,54);mainStatus.alignment=TextAlignmentOptions.TopRight;
-            var art=Node("ScalesEmblem",frame.transform);Place(art.GetComponent<RectTransform>(),new Vector2(660,-190),new Vector2(440,360));
+            var art=Node("ScalesEmblem",frame.transform);Place(art.GetComponent<RectTransform>(),new Vector2(660,-130),new Vector2(440,360));
             Bar(art.transform,new Vector2(216,-40),new Vector2(8,270));Bar(art.transform,new Vector2(35,-90),new Vector2(370,6));
             Bar(art.transform,new Vector2(65,-95),new Vector2(3,130));Bar(art.transform,new Vector2(365,-95),new Vector2(3,130));
             Bar(art.transform,new Vector2(15,-225),new Vector2(110,5));Bar(art.transform,new Vector2(315,-225),new Vector2(110,5));Bar(art.transform,new Vector2(150,-312),new Vector2(140,7));
-            var caption=Text(art.transform,"두 사람의 진술, 하나의 판결",20,40,new Color(0.67f,0.59f,0.45f));Place(caption.rectTransform,new Vector2(40,-360),new Vector2(400,40));
+            var caption=Text(art.transform,"두 사람의 진술, 하나의 판결",20,40,new Color(0.67f,0.59f,0.45f));Place(caption.rectTransform,new Vector2(40,-350),new Vector2(400,40));
+
+            var devBox=Node("DevRoomBox",frame.transform);Place(devBox.GetComponent<RectTransform>(),new Vector2(680,-485),new Vector2(400,140));
+            devBox.AddComponent<UnityEngine.UI.Image>().color=new Color(0.05f,0.08f,0.13f,0.95f);
+            var devOutline=devBox.AddComponent<UnityEngine.UI.Outline>();devOutline.effectColor=new Color(0.78f,0.58f,0.25f,0.65f);devOutline.effectDistance=new Vector2(1,-1);
+            var devLayout=devBox.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();devLayout.padding=new RectOffset(16,16,10,10);devLayout.spacing=6;
+            devLayout.childControlWidth=devLayout.childControlHeight=true;devLayout.childForceExpandHeight=false;
+            var devTitle=Text(devBox.transform,"개발 및 테스트",14,18,new Color(0.85f,0.7f,0.42f));devTitle.alignment=TextAlignmentOptions.Center;
+            var devBtn=Button(devBox.transform,"개발 전용 방",EnterDevRoom);
+            devBtn.GetComponent<UnityEngine.UI.Image>().color=new Color(0.2f,0.15f,0.08f);
+            devBtn.GetComponentInChildren<TMP_Text>().color=new Color(1f,0.88f,0.55f);
+            var devBtnOutline=devBtn.gameObject.AddComponent<UnityEngine.UI.Outline>();devBtnOutline.effectColor=new Color(0.9f,0.72f,0.3f,0.85f);devBtnOutline.effectDistance=new Vector2(1,-1);
+            var devDesc=Text(devBox.transform,"1인 로비 즉시 입장 · 법정 맵 및 게임 바로 시작",13,26,new Color(0.64f,0.74f,0.82f));devDesc.alignment=TextAlignmentOptions.Center;
+
             var foot=Text(frame.transform,"2인 온라인 토론 게임  /  Steam",14,26,new Color(0.4f,0.49f,0.58f));Place(foot.rectTransform,new Vector2(660,-650),new Vector2(450,26));
         }
         private void Place(RectTransform rect,Vector2 position,Vector2 size)

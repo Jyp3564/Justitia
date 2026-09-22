@@ -34,6 +34,71 @@ namespace Justitia
         public string CommonQuestion { get; private set; }="";
         public string AiError { get; private set; }="";
         public bool AiGenerating { get; private set; }
+        public bool IsDevMode;
+
+        public bool SetDevReady(bool ready)
+        {
+            if (Phase != LobbyPhase.Preparing || MapId != "court") return false;
+            HostReady = ready;
+            GuestReady = ready;
+            if (HostReady && GuestReady)
+            {
+                Phase = LobbyPhase.HostSetup;
+            }
+            Revision++;
+            Changed?.Invoke();
+            return true;
+        }
+
+        public bool SetDevKeywords(string hostKw, string guestKw)
+        {
+            if (!IsDevMode || Phase == LobbyPhase.Submitted || AiGenerating || CaseSummary.Length > 0) return false;
+            string h = string.IsNullOrWhiteSpace(hostKw) ? "정의" : hostKw.Trim();
+            string g = string.IsNullOrWhiteSpace(guestKw) ? "진실" : guestKw.Trim();
+            if (h.Length > 40 || g.Length > 40) return false;
+            MapId = "court";
+            HostReady = true;
+            GuestReady = true;
+            Phase = LobbyPhase.HostSetup;
+            HostKeyword = h;
+            GuestKeyword = g;
+            AiError = "";
+            Revision++;
+            Changed?.Invoke();
+            return true;
+        }
+
+        public void ApplyDevCase(string summary, string question)
+        {
+            if (!IsDevMode) return;
+            MapId = "court";
+            HostReady = true;
+            GuestReady = true;
+            Phase = LobbyPhase.HostSetup;
+            AiGenerating = false;
+            CaseSummary = summary.Trim();
+            CommonQuestion = question.Trim();
+            AiError = "";
+            Revision++;
+            Changed?.Invoke();
+        }
+
+        public void StartDevGameDirectly()
+        {
+            MapId = "court";
+            HostReady = true;
+            GuestReady = true;
+            HostKeyword = "정의";
+            GuestKeyword = "진실";
+            CaseSummary = "정의의 법정 개발 전용 테스트 사건입니다.\n양측의 진술을 검증하고 법정 환경 및 시점, 음성 시스템을 테스트할 수 있습니다.";
+            CommonQuestion = "피고와 원고는 당시 상황에 대해 각각 진술해 주십시오.";
+            Topic = CaseSummary;
+            MaxRound = 3;
+            Phase = LobbyPhase.Submitted;
+            Revision++;
+            Changed?.Invoke();
+        }
+
         public bool SetKeyword(PlayerRole role,string value)
         {
             if(Phase!=LobbyPhase.HostSetup || !ValidRole(role) || AiGenerating || CaseSummary.Length>0 || string.IsNullOrWhiteSpace(value) || value.Trim().Length>40)return false;
